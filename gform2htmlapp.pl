@@ -250,6 +250,10 @@ __DATA__
   <p>Observações:</p>
   <ul>
   <li>Por padrao eh usado Bootstrap.</li>
+  <li>Suporta somente formularios de pagina unica</li>
+  <li>Tipos de perguntas que sao suportadas agora: Radio, Checkbox e texto simples</li>
+  <li>Nada eh guardado no banco de dados.</li>
+  <li> Codigo aberto - consulta o repositorio <a href="https://github.com/andruhaASM/gform2htmlapp" target="_blank">aqui.</a></li>
   </ul>
 
 <form action="<%= url_for('/convert-google-form-to-html') %>" method="post">
