@@ -7,8 +7,17 @@ use Data::Dumper;
 use Encode qw(decode encode);
 use Scalar::Util qw(reftype);
 
+use constant {
+	      RADIO => {id => 2, type => "radio"},
+	      CHECKBOX => { id => 4, type => "checkbox"},
+	      SMALL_TEXT => {id => 0, type => "text"}
+	     };
 
-app->mode('production');
+my $is_prod = $ENV{"GFORM_PRODUCTION"} || 0;
+
+if ($is_prod == 1){
+  app->mode('production');
+}
 
 my $pattern = qr/(var\sFB\_PUBLIC\_LOAD\_DATA\_.*;)/;
 my $extract_action_pattern = qr/(action="https:\/\/docs\.google\.com\/forms\/d\/e\/.*\/formResponse)/;
@@ -55,10 +64,10 @@ sub parse_choice_field{
   my $field_type_enum = $_[1];
   my $field_type = "";
 
-  if ($field_type_enum == 2){
-    $field_type = "radio";
+  if ($field_type_enum == RADIO->{id}){
+    $field_type = RADIO->{type};
   } else {
-    $field_type = "checkbox";
+    $field_type = CHECKBOX->{type};
   }
 
   my $question_id = $data->[4][0][0];
@@ -94,10 +103,10 @@ sub extract_questions{
   # the 2nd array in the JSON returned by Google Form API.
   my $list_of_questions =  $form_data->[1][1];
   for my $item (@$list_of_questions) {
-    if ($item->[3] == 0){
+    if ($item->[3] == SMALL_TEXT->{id}){
       my $text_field = parse_text_field($item);
       push(@form_questions, $text_field);
-    } elsif ($item->[3] == 2 || $item->[3] == 4){
+    } elsif ($item->[3] == RADIO->{id} || $item->[3] == CHECKBOX->{id}){
       my $choice_field = parse_choice_field($item, $item->[3]);
       push(@form_questions, $choice_field);
     }
@@ -153,7 +162,7 @@ jQuery(function(\$) {
 get '/convert-google-form-to-html' => sub {
   my $c = shift;
   $c->app->log->debug("GET / called");
-  $c->render('index');
+  $c->render(template => 'index');
 };
 
 post '/convert-google-form-to-html' => sub {
@@ -163,15 +172,15 @@ post '/convert-google-form-to-html' => sub {
   $c->app->log->debug ("Form url -> $form_url \n");
 
   unless (length $form_url){
-    return $c->render('index', error => 'Url do formulario nao pode ser vazia.');
+    return $c->render(template => 'index', error => 'Url do formulario nao pode ser vazia.');
   }
   if ($form_url !~ /.*docs\.google\.com\/forms.*/){
     $c->app->log->info("The url provided is not the Google Form URL: $form_url");
-    return $c->render('index', error => 'Aceita somente Google Forms!');
+    return $c->render(template => 'index', error => 'Aceita somente Google Forms!');
    }
   if ($form_url !~ /viewform/){
     $c->app->log->info("The form is not shared publicly: $form_url");
-    return $c->render('index', error => 'O formulario deve ser compartilhado publicamente.');
+    return $c->render(template => 'index', error => 'O formulario deve ser compartilhado publicamente.');
   }
   
   my $response = HTTP::Tiny->new->get($form_url);
@@ -190,111 +199,26 @@ if ($response->{success}) {
   $extracted_form = $extracted_form
     #=~ s/null/-1/gir
     =~ s/var\sFB\_PUBLIC\_LOAD\_DATA\_\s\=\s|;$//gir;
-
+  $c->app->log->info("Extracted form is: $extracted_form");
+  unless (length $extracted_form){
+    return $c->render('index', error => 'Falha ao baixar o formulario. Obs: esse app nao aceita formularios que exigem login na conta Google.');
+  }
   my $form_data = decode_json($extracted_form);
   my $result = extract_questions($form_data);
 
   $c->stash(form_data => $result);
-  return $c->render('index', form_data => $result);
+  return $c->render(template => 'index', form_data => $result);
   } else {
-    $c->render('index', error => "Erro ao baixar o conteudo do formulario $response->{status} $response->{reason}");
+    $c->render(template => 'index', error => "Erro ao baixar o conteudo do formulario $response->{status} $response->{reason}");
     return
 }
-
-  # unless (length $message) {
-  #   $c->render('index', error => 'Message is empty');
-  #   return;
-  # }
 
   $c->redirect_to('/convert-google-form-to-html');
 };
 
-# hypnotoad does not require call to app->start.
+if ($is_prod == 1){
+  app;
+} else {
+ app->start;
+}
 
-# app->start;
-
-# instead it needs the app to be returned.
-app;
-
-__DATA__
-
-@@ index.html.ep
-<% my $error = stash 'error'; %>
-
-% if ($error) {
-  <div style="color:red"><%= $error %></div>
-    % }
-
-<!DOCTYPE html>
-<html>
-<head>
-<meta name='viewport' content='width=device-width, initial-scale=1.0'>
-<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css' rel='stylesheet' integrity='sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB' crossorigin='anonymous'>
-<script src='https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js'></script>
-
-<title>Convert Google Form to Pure HTML.</title>
-</head>
-  <body>
-  <div class="container">
-  <div class="row">
-  <h1> Converte o seu formulario 'Google Form' em puro HTML</h1>
-  <p>Passo a passo:</p>
-<ol class='list-group'>
-  <li class='list-group-item'>Crie o formulario no Google Forms.</li>
-  <li class='list-group-item'>Compartilhe o formulario publicamente.</li>
-  <li class='list-group-item'>Copie e cole o URL do formulario no campo abaixo. O URL nao pode ser encurtado.</li>
-  </ol>
-  <div></div>
-  <p> Exemplo de URL de um formulario Google Forms compartilhado publicamente:
-<strong>https://docs.google.com/forms/d/e/1FAIpQLSeEZ_0EQDb5-fsbUG60hHxc-mLrBFGmYQ7YYJYyPcjYKyUX8A/viewform?usp=dialog</strong> </p>
-  <p>Observações:</p>
-  <ul>
-  <li>Por padrao eh usado Bootstrap.</li>
-  <li>Suporta somente formularios de pagina unica</li>
-  <li>Tipos de perguntas que sao suportadas agora: Radio, Checkbox e texto simples</li>
-  <li>Nada eh guardado no banco de dados.</li>
-  <li> Codigo aberto - consulta o repositorio <a href="https://github.com/andruhaASM/gform2htmlapp" target="_blank">aqui.</a></li>
-  </ul>
-
-<form action="<%= url_for('/convert-google-form-to-html') %>" method="post">
-  <b>Cole URL do Google Form aqui -></b> <%= text_field 'formURL' %> <br>
-  <input class="btn btn-primary" type="submit" value="Enviar">
-</form>
-
-  <div>
-  <h3>Resultado</h3>
-<button type="button" class="btn btn-primary" id="copyBtn">
-  Copiar HTML.
-</button>
- <textarea id="autoResize" rows="1" style="overflow:hidden; resize:none;" class="form-control"><%== stash('form_data') // '' %></textarea>
-  </div>
-  </div>
-</div>
-
-<script>
-  function autoResize(el) {
-    el.style.height = "auto";
-    el.style.height = el.scrollHeight + "px";
-  }
-
-  document.addEventListener("DOMContentLoaded", function () {
-    const textarea = document.getElementById("autoResize");
-    if (textarea) {
-      autoResize(textarea);
-      textarea.addEventListener("input", () => autoResize(textarea));
-    }
-
-    const copyBtn = document.getElementById("copyBtn");
-    copyBtn.addEventListener("click", function () {
-      navigator.clipboard.writeText(textarea.value)
-        .then(() => {
-          copyBtn.innerText = "Copiado!";
-          setTimeout(() => copyBtn.innerText = "Copiar texto", 2000);
-        })
-        .catch(err => alert("Erro ao copiar: " + err));
-    });
-  });
-</script>
-
-</body>
-</html>
