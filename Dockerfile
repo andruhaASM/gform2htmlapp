@@ -3,6 +3,7 @@ FROM --platform=linux/amd64 perl:5.36-slim
 WORKDIR /app
 
 COPY . /app
+ADD templates /opt/templates
 
 RUN cpanm Mojolicious
 
