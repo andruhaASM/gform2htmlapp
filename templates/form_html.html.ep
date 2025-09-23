@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+
+<title>Page Title</title>
+</head>
+<body>
+<div class="container">
+  <form class="row g-3" id="customForm">
+  <% for my $question (@$form_questions) { %>
+    <%= $question %>
+  <% } %>
+
+    <input class="btn btn-primary" type="submit" value="Enviar"></form>
+</div>
+
+<script>
+jQuery(function($) {
+  $('#customForm').on("submit", function(e) {
+    e.preventDefault();
+
+    var formData = $(this).serialize();
+
+    $.ajax({
+      type: 'POST',
+      url: "<%=$form_action%>",
+      data: formData,
+      dataType: "xml",
+      complete: function() {
+      alert('Enviado com suecesso!');
+      }
+    });
+  });
+});
+</script>
+</body>
+</html>

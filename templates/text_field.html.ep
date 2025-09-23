@@ -1,0 +1,5 @@
+<div>
+  <p><strong><%=$title%></strong></p>
+  <%=$sub_title%>
+  <input class="form-control" type="text" name="entry.<%=$question_id%>" id="id.<%=$field_id%>"<%=$is_required%>>
+</div>

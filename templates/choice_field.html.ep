@@ -1,0 +1,16 @@
+<div class="form-group">
+  <p>
+    <strong><%=$title%></strong>
+  </p>
+  <small><%=$sub_title%></small>
+  <% for my $item (@$options) { %>
+<div class="form-check">
+  <label>
+    <input class="form-check-input" type="<%=$field_type%>"  name="entry.<%=$question_id%>" value="<%=$item->[0]%>" id="id.<%=$field_id%>"<%=$is_required%>>
+    <label class="form-check-label" for="id.<%=$field_id%>">
+      <%=$item->[0]%>
+    </label>
+  </label>
+</div>
+<% } %>
+</div>
