@@ -35,7 +35,6 @@ my $EXTRACT_FORM_ACTION_PATTERN = qr/(action="https:\/\/docs\.google\.com\/forms
 my $FORM_DATA_PATTERN = qr/(var\sFB\_PUBLIC\_LOAD\_DATA\_.*;)/;
 
 my @parsed_form = ();
-my $form_action = "";
 
 
 sub log_something {
