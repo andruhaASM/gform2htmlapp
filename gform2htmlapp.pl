@@ -107,6 +107,18 @@ sub normalize_radio_field{
 }
 
 
+sub normalize_form_title_and_description {
+  my $data = shift;
+  my $c = shift;
+  my $form_title = $data->[1]->[8];
+  my $form_description = $data->[1]->[0];
+  my %title_description = (
+	       title => $form_title,
+	       description => $form_description
+			  );
+  return \%title_description;
+}
+
 sub parse_text_field{
   my $normalized_data = shift;
   my $c = shift;
@@ -155,6 +167,18 @@ sub parse_radio_field{
   return $form_html;
 }
 
+sub parse_title_and_description{
+  my $normalized_data = shift;
+  my $c = shift;
+
+  my $form_html = $c->render_to_string(
+				       template => 'title_description',
+				       title => $normalized_data->{title},
+				       description => $normalized_data->{description}
+				      );
+  return $form_html;
+}
+
 sub get_item_type{
   # Returns the int that represents the input type.
   my $item = shift;
@@ -186,13 +210,16 @@ sub normalize_questions{
 
 
 
-sub extract_questions{
-  # Receives the list of normalized questions and transform them into HTML.
-  my $data = shift;
+
+
+sub render_form{
+  # Receives form title and descriptio and the list of questions and transform them into HTML.
+  my $questions = shift;
   my $form_action = shift;
+  my $title_and_description = shift;
   my $c = shift;
   my $form_questions = [];
-  for my $item (@$data) {
+  for my $item (@$questions) {
     my $item_type = $item->{field_type};
     # TODO: add check for processor. If some new questions will come and there is no processor, we have to be notified.
     my $processor = $form_input_processors{$item_type};
@@ -201,6 +228,7 @@ sub extract_questions{
   }
   my $form_html = $c->render_to_string(
 				       template => 'form_html',
+				       title_and_description => $title_and_description,
 				       form_questions => $form_questions,
 				       form_action => $form_action,
 				      );
@@ -307,9 +335,11 @@ post '/convert-google-form-to-html' => sub {
     return;
   }
   my $list_of_questions =  get_list_of_questions($form_data);
+  my $normalized_form_title_and_description = normalize_form_title_and_description($form_data, $c);
+  my $title_and_description = parse_title_and_description($normalized_form_title_and_description, $c);
   my $normalized_questions = normalize_questions($list_of_questions);
 
-  my $result = extract_questions($normalized_questions, $form_action, $c);
+  my $result = render_form($normalized_questions, $form_action, $title_and_description, $c);
 
   $c->stash(form_data => $result);
   return $c->render(template => 'index', form_data => $result);
