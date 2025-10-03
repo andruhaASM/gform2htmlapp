@@ -49,8 +49,8 @@
   </div>
 </div>
 
-<script>
-  function autoResize(el) {
+  <script>
+    function autoResize(el) {
     el.style.height = "auto";
     el.style.height = el.scrollHeight + "px";
   }
