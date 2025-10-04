@@ -1,29 +1,23 @@
+use lib 'lib';
 use Mojolicious::Lite;
 use HTTP::Tiny;
 use warnings;
 use strict;
-use JSON::PP;
 use Data::Dumper;
 use Encode qw(decode encode);
 use Scalar::Util qw(reftype);
-use feature 'try';
 
-use constant {
-	      RADIO => {id => 2, type => "radio"},
-	      CHECKBOX => { id => 4, type => "checkbox"},
-	      SMALL_TEXT => {id => 0, type => "text"}
-	     };
+# Custom modules
+
+use parsers::parsers qw(parse_text_field parse_checkbox_field parse_radio_field parse_title_and_description parse_to_json);
+use normalizers::normalizers qw(normalize_common_fields normalize_small_text_field normalize_checkbox_field normalize_radio_field normalize_form_title_and_description normalize_questions);
+use constants::constants qw(RADIO CHECKBOX SMALL_TEXT);
 
 my %form_input_processors = (
 			     RADIO->{type} => \&parse_radio_field,
 			     CHECKBOX->{type} => \&parse_checkbox_field,
 			     SMALL_TEXT->{type} => \&parse_text_field
 			    );
-my %form_input_normalizers = (
-			     RADIO->{id} => \&normalize_radio_field,
-			     CHECKBOX->{id} => \&normalize_checkbox_field,
-			     SMALL_TEXT->{id} => \&normalize_small_text_field
-			     );
 
 my $is_prod = $ENV{"GFORM_PRODUCTION"} || 0;
 
@@ -43,169 +37,12 @@ sub log_something {
   $c->app->log->debug ("$message.\n");
 }
 
-sub normalize_common_fields{
-  my $data = shift;
-  my $question_id = $data->[4][0][0];
-  my $field_id = $data->[0];
-  my $title = $data->[1];
-  my $sub_title = (length $data->[2] != 0) ? "<p>$data->[2]</p>":"";
-  my $is_required = ($data->[4][0][-1] == 1) ? " required":"";
-  return ($question_id, $field_id, $title, $sub_title, $is_required);
-}
-
-sub normalize_small_text_field{
-  my $data = shift;
-  my  ($question_id, $field_id, $title, $sub_title, $is_required) = normalize_common_fields($data);
-  my $field_type = SMALL_TEXT->{type};
-
-  my %input = (
-	       question_id => $question_id,
-	       field_id => $field_id,
-	       field_type => $field_type,
-	       title => $title,
-	       sub_title => $sub_title,
-	       options => [],
-	       is_required => $is_required
-	      );
-  return \%input; # This is the recommended way to return hashes.
-}
-
-sub normalize_checkbox_field{
-  my $data = shift;
-  my  ($question_id, $field_id, $title, $sub_title, $is_required) = normalize_common_fields($data);
-  my $field_type = CHECKBOX->{type};
-  my $options = $data->[4][0][1];
-
-  my %input = (
-	       question_id => $question_id,
-	       field_id => $field_id,
-	       field_type => $field_type,
-	       title => $title,
-	       sub_title => $sub_title,
-	       options => $options,
-	       is_required => $is_required
-	      );
-  return \%input;
-}
-
-sub normalize_radio_field{
-  my $data = shift;
-  my  ($question_id, $field_id, $title, $sub_title, $is_required) = normalize_common_fields($data);
-  my $field_type = RADIO->{type};
-  my $options = $data->[4][0][1];
-
-  my %input = (
-	       question_id => $question_id,
-	       field_id => $field_id,
-	       field_type => $field_type,
-	       title => $title,
-	       sub_title => $sub_title,
-	       options => $options,
-	       is_required => $is_required
-	      );
-  return \%input;
-}
-
-
-sub normalize_form_title_and_description {
-  my $data = shift;
-  my $c = shift;
-  my $form_title = $data->[1]->[8];
-  my $form_description = $data->[1]->[0];
-  my %title_description = (
-	       title => $form_title,
-	       description => $form_description
-			  );
-  return \%title_description;
-}
-
-sub parse_text_field{
-  my $normalized_data = shift;
-  my $c = shift;
-  my $form_html = $c->render_to_string(
-				       template => 'text_field',
-				       question_id => $normalized_data->{question_id},
-				       field_id => $normalized_data->{field_id},
-				       title => $normalized_data->{title},
-				       sub_title => $normalized_data->{sub_title},
-				       is_required => $normalized_data->{is_required}
-				      );
-
-  return $form_html;
-}
-
-sub parse_checkbox_field{
-  my $normalized_data = shift;
-  my $c  = shift;
-  my $form_html = $c->render_to_string(
-				       template => 'choice_field',
-				       field_type => $normalized_data->{field_type},
-				       options => $normalized_data->{options},
-				       question_id => $normalized_data->{question_id},
-				       field_id => $normalized_data->{field_id},
-				       title => $normalized_data->{title},
-				       sub_title => $normalized_data->{sub_title},
-				       is_required => $normalized_data->{is_required}
-				      );
-  return $form_html;
-}
-
-
-sub parse_radio_field{
-  my $normalized_data = shift;
-  my $c  = shift;
-  my $form_html = $c->render_to_string(
-				       template => 'choice_field',
-				       field_type => $normalized_data->{field_type},
-				       options => $normalized_data->{options},
-				       question_id => $normalized_data->{question_id},
-				       field_id => $normalized_data->{field_id},
-				       title => $normalized_data->{title},
-				       sub_title => $normalized_data->{sub_title},
-				       is_required => $normalized_data->{is_required}
-				      );
-  return $form_html;
-}
-
-sub parse_title_and_description{
-  my $normalized_data = shift;
-  my $c = shift;
-
-  my $form_html = $c->render_to_string(
-				       template => 'title_description',
-				       title => $normalized_data->{title},
-				       description => $normalized_data->{description}
-				      );
-  return $form_html;
-}
-
-sub get_item_type{
-  # Returns the int that represents the input type.
-  my $item = shift;
-  my $num =  $item->[3];
-  return $num;
-}
-
 sub get_list_of_questions{
   # Return the list of questions from parsed JSON.
   my $data = shift;
   my $list_of_questions =  $data->[1][1];
   # TODO: add validation if the list of questions is not empty.
   return $list_of_questions;
-}
-
-sub normalize_questions{
-  # Receives a list of questions (JSON), normalizes it to a list of internal hashes and return.
-  my $data = shift;
-  my $normalized_questions = [];
-  foreach my $item (@$data){
-    my $item_type = get_item_type($item);
-    # TODO: add check for the case when normalizer was not found (unsupported question type or new question).
-    my $normalizer = $form_input_normalizers{$item_type};
-    my $normalized_question = $normalizer->($item);
-    push(@$normalized_questions, $normalized_question);
-  }
-  return $normalized_questions;
 }
 
 
@@ -286,16 +123,6 @@ sub extract_data_from_html{
     return ($form_action, $extracted_form);
   }
   return ();
-}
-
-
-sub parse_to_json{
-  # Try to decode the JSON-like string. Returns empty results if fails.
-  my $extracted_form = shift;
-  my $error;
-  my $data = eval {decode_json($extracted_form)};
-  my $error = $@;
-  return ($error, $data);
 }
 
 
