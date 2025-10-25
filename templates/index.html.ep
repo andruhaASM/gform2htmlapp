@@ -33,14 +33,15 @@
 
 <form action="<%= url_for('/convert-google-form-to-html') %>" method="post">
   <b>Cole URL do Google Form aqui -></b> <%= text_field 'formURL' %> <br>
-  <input class="btn btn-primary" type="submit" value="Enviar">
+  <input class="btn btn-primary" type="submit" value="Enviar" onclick="onSubmit();">
 </form>
 
   <div>
 % if ($error) {
-  <div style="color:red"><%= $error %></div>
+  <div style="color:red" id="error-text"><%= $error %></div>
     % }
   <h3>Resultado</h3>
+  <div id="downloading"></div>
 <button type="button" class="btn btn-primary" id="copyBtn">
   Copiar HTML.
 </button>
@@ -50,10 +51,17 @@
 </div>
 
   <script>
+    // Resize container with form HTML.
     function autoResize(el) {
     el.style.height = "auto";
     el.style.height = el.scrollHeight + "px";
-  }
+    }
+
+    function onSubmit() {
+	const downoloading_field  = document.getElementById("downloading");
+	downoloading_field.innerHTML = "Convertendo Formulário Google...";
+	
+    }
 
   document.addEventListener("DOMContentLoaded", function () {
     const textarea = document.getElementById("autoResize");
@@ -72,6 +80,7 @@
         .catch(err => alert("Erro ao copiar: " + err));
     });
   });
+
 </script>
 
 </body>
