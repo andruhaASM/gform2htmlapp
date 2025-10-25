@@ -6,18 +6,24 @@ use strict;
 use Data::Dumper;
 use Encode qw(decode encode);
 use Scalar::Util qw(reftype);
+use UUID::Tiny ':std';
+
+use Data::Dumper;
 
 # Custom modules
 
-use parsers::parsers qw(parse_text_field parse_checkbox_field parse_radio_field parse_title_and_description parse_to_json);
+use parsers::parsers qw(parse_text_field parse_big_text_field parse_checkbox_field parse_radio_field parse_title_and_description parse_to_json);
 use normalizers::normalizers qw(normalize_common_fields normalize_small_text_field normalize_checkbox_field normalize_radio_field normalize_form_title_and_description normalize_questions);
-use constants::constants qw(RADIO CHECKBOX SMALL_TEXT);
+# use normalizers::normalizers qw(normalize_questions normalize_form_title_and_description);
+use constants::constants qw(RADIO CHECKBOX SMALL_TEXT BIG_TEXT MAX_RETRIES INITIAL_DELAY);
 
 my %form_input_processors = (
-			     RADIO->{type} => \&parse_radio_field,
-			     CHECKBOX->{type} => \&parse_checkbox_field,
-			     SMALL_TEXT->{type} => \&parse_text_field
+			     RADIO->{id} => \&parse_radio_field,
+			     CHECKBOX->{id} => \&parse_checkbox_field,
+			     SMALL_TEXT->{id} => \&parse_text_field,
+			     BIG_TEXT->{id} => \&parse_big_text_field
 			    );
+my %local_cache;
 
 my $is_prod = $ENV{"GFORM_PRODUCTION"} || 0;
 
@@ -46,9 +52,6 @@ sub get_list_of_questions{
 }
 
 
-
-
-
 sub render_form{
   # Receives form title and descriptio and the list of questions and transform them into HTML.
   my $questions = shift;
@@ -57,9 +60,12 @@ sub render_form{
   my $c = shift;
   my $form_questions = [];
   for my $item (@$questions) {
-    my $item_type = $item->{field_type};
+    my $item_type = $item->{gform_int_id};
     # TODO: add check for processor. If some new questions will come and there is no processor, we have to be notified.
     my $processor = $form_input_processors{$item_type};
+    if(!$processor){
+      next;
+    }
     my $input_content = $processor->($item, $c);
     push(@$form_questions, $input_content);
   }
@@ -91,13 +97,37 @@ sub validate_form_url{
 sub get_raw_html {
   # Given a validated form URL, download form HTML or log error and return empty list.
   my $form_url = shift;
-  my $response = HTTP::Tiny->new->get($form_url);
+  my $c = shift;
+  my $response;
+  my $success = 0;
+  my $current_attempt = 1;
+  my $initial_delay = INITIAL_DELAY;
+  while ($current_attempt <= MAX_RETRIES){
+    $@ = '';
+    eval {
+      $c->app->log->debug("Attempting to fetch URL: $form_url. Attempt #$current_attempt");
+      $response = HTTP::Tiny->new->get($form_url);
+      die "Error when fetching form URL: $form_url."
+	unless $response->{success};
+    };
+  if ($@){
+    $c->app->log->debug("Failed to fetch URL: $form_url with error: $@ on attempt #$current_attempt.");
+    sleep($initial_delay);
+    $current_attempt++;
+    $initial_delay *= 2;
+  } else {
+    $success = 1;
+    last;
+  }
+  }
+  unless ($success){
+    $c->app->log->debug("Failed to fetch URL: $form_url with error: $@.");
+  }
 
   if ($response->{success}){
-    return ($response->{status}, $response->{content})
+    return ($response->{status}, $response->{content}, $current_attempt)
   }
-  return ($response->{status}, $response->{reason});
-  
+  return ($response->{status}, $response->{reason}, $current_attempt);
 }
 
 sub extract_data_from_html{
@@ -129,49 +159,53 @@ sub extract_data_from_html{
 
 get '/convert-google-form-to-html' => sub {
   my $c = shift;
-  $c->app->log->debug("GET / called");
-  $c->render(template => 'index');
+  my $form_data_id = $c->flash('form_data_id');
+  my $form_data =  $local_cache{$form_data_id};
+  delete $local_cache{$form_data_id};
+  my $error = $c->flash("error");
+  return $c->render(template => 'index', form_data => $form_data, error => $error);
 };
 
 post '/convert-google-form-to-html' => sub {
   my $c = shift;
   my $form_url = $c->param('formURL');
+  my $unique_form_id  = create_uuid_as_string(UUID_V4);
   my @validation_error_messages = validate_form_url($form_url);
   if (scalar @validation_error_messages){
     $c->app->log->info("Form URL Validation error: $validation_error_messages[1]");
-    return $c->render(template => 'index', error => $validation_error_messages[0] || "Unknown error during parsing!");
+    $c->flash(error =>  $validation_error_messages[0]);
+    return $c->redirect_to("/convert-google-form-to-html");
   }
   $c->app->log->debug ("Downloading form with URL: $form_url \n");
-  my ($status, $content) = get_raw_html($form_url);
+  my ($status, $content, $attempts) = get_raw_html($form_url, $c);
   if ($status != 200){
     $c->app->log->debug ("Failed to fetch form with url: $form_url with status: $status and reason: $content \n");
-    $c->render(template => 'index', error => "Erro ao baixar o conteudo do formulario: $status | $content.");
-    return;
+    $c->flash(error => "Erro ao baixar o conteudo do formulario depois de $attempts tentativas: $status | $content.");
+    return $c->redirect_to("/convert-google-form-to-html");
   }
 
   my ($form_action, $extracted_form) = extract_data_from_html($content);
   if (!$form_action || !$extracted_form) {
     $c->app->log->debug ("Failed extract data from raw HTML for the form with url: $form_url.\n");
-    $c->render(template => 'index', error => "Erro ao extrair dados do HTML do formulario. Obs: esse app nao aceita formularios que exigem login na conta Google.\n");
-    return;
+    $c->flash(error => "Erro ao extrair dados do HTML do formulario. Obs: esse app nao aceita formularios que exigem login na conta Google.\n");
+     return $c->redirect_to("/convert-google-form-to-html");
   }
   my ($parsing_error, $form_data) = parse_to_json($extracted_form);
   if ($parsing_error) {
     $c->app->log->debug ("Failed to parse JSON-like string due to: $parsing_error.\n");
-    $c->render(template => 'index', error => "Erro ao extrair dados do HTML do formulario.\n");
-    return;
+    $c->flash(error => "Erro ao extrair dados do HTML do formulario.\n");
+    return $c->redirect_to("/convert-google-form-to-html");
   }
   my $list_of_questions =  get_list_of_questions($form_data);
   my $normalized_form_title_and_description = normalize_form_title_and_description($form_data, $c);
   my $title_and_description = parse_title_and_description($normalized_form_title_and_description, $c);
-  my $normalized_questions = normalize_questions($list_of_questions);
+  my $normalized_questions = normalize_questions($list_of_questions, $c);
 
   my $result = render_form($normalized_questions, $form_action, $title_and_description, $c);
-
-  $c->stash(form_data => $result);
-  return $c->render(template => 'index', form_data => $result);
-
-  $c->redirect_to('/convert-google-form-to-html');
+  $local_cache{$unique_form_id} = $result;
+  # Post -> Redirect -> Get patterns.
+  $c->flash(form_data_id => $unique_form_id);
+  return $c->redirect_to("/convert-google-form-to-html");
 };
 
 if ($is_prod == 1){
